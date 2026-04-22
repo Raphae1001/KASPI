@@ -1,0 +1,7 @@
+{
+	"name": "kaspi",
+	"private": true,
+	"scripts": {
+		"build": "echo \"[kaspi] ERREUR: ce dépôt est un monorepo. Dans Vercel → Project → Settings → Build & Deployment → Root Directory, définir exactement: anything/apps/web\" && exit 1"
+	}
+}
