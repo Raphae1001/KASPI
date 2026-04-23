@@ -41,6 +41,39 @@ if (globalThis.window && globalThis.window !== undefined) {
 }
 
 const LoadFontsSSR = import.meta.env.SSR ? LoadFonts : null;
+const SANDBOX_PARENT_ORIGINS = new Set([
+  'https://www.createanything.com',
+  'https://createanything.com',
+  'https://instant-site-magic-48.vercel.app',
+  'http://localhost:3000',
+]);
+
+const getParentOriginFromReferrer = () => {
+  if (typeof document === 'undefined' || !document.referrer) return null;
+  try {
+    return new URL(document.referrer).origin;
+  } catch {
+    return null;
+  }
+};
+
+const canUseSandboxBridge = () => {
+  if (typeof window === 'undefined') return false;
+  try {
+    if (!window.parent || window.parent === window) return false;
+  } catch {
+    return false;
+  }
+  if (import.meta.env.DEV) return true;
+  const parentOrigin = getParentOriginFromReferrer();
+  return !!parentOrigin && SANDBOX_PARENT_ORIGINS.has(parentOrigin);
+};
+
+const postSandboxMessage = (message: unknown) => {
+  if (!canUseSandboxBridge()) return;
+  window.parent.postMessage(message, '*');
+};
+
 if (import.meta.hot) {
   import.meta.hot.on('update-font-links', (urls: string[]) => {
     // remove old font links
@@ -97,7 +130,7 @@ function InternalErrorBoundary({ error: errorArg }: Route.ErrorBoundaryProps) {
       }
       postCountRef.current += 1;
       lastPostTimeRef.current = Date.now();
-      window.parent.postMessage({ type: 'sandbox:error:detected', error: serialized }, '*');
+      postSandboxMessage({ type: 'sandbox:error:detected', error: serialized });
     };
 
     if (timeSinceLastPost < THROTTLE_MS) {
@@ -310,6 +343,7 @@ const healthyResponseType = 'sandbox:web:healthcheck:response';
 const useHandshakeParent = () => {
   const isHmrConnected = useHmrConnection();
   useEffect(() => {
+    if (!canUseSandboxBridge()) return;
     const healthyResponse = {
       type: healthyResponseType,
       healthy: isHmrConnected,
@@ -317,13 +351,13 @@ const useHandshakeParent = () => {
     };
     const handleMessage = (event: MessageEvent) => {
       if (event.data.type === 'sandbox:web:healthcheck') {
-        window.parent.postMessage(healthyResponse, '*');
+        postSandboxMessage(healthyResponse);
       }
     };
     window.addEventListener('message', handleMessage);
     // Immediately respond to the parent window with a healthy response in
     // case we missed the healthcheck message
-    window.parent.postMessage(healthyResponse, '*');
+    postSandboxMessage(healthyResponse);
     return () => {
       window.removeEventListener('message', handleMessage);
     };
@@ -356,6 +390,7 @@ const waitForScreenshotReady = async () => {
 
 export const useHandleScreenshotRequest = () => {
   useEffect(() => {
+    if (!canUseSandboxBridge()) return;
     const handleMessage = async (event: MessageEvent) => {
       if (event.data.type === 'sandbox:web:screenshot:request') {
         try {
@@ -379,14 +414,13 @@ export const useHandleScreenshotRequest = () => {
             },
           });
 
-          window.parent.postMessage({ type: 'sandbox:web:screenshot:response', dataUrl }, '*');
+          postSandboxMessage({ type: 'sandbox:web:screenshot:response', dataUrl });
         } catch (error) {
-          window.parent.postMessage(
+          postSandboxMessage(
             {
               type: 'sandbox:web:screenshot:error',
               error: error instanceof Error ? error.message : String(error),
-            },
-            '*'
+            }
           );
         }
       }
@@ -407,26 +441,26 @@ export function Layout({ children }: { children: ReactNode }) {
   const pathname = location?.pathname;
   const isMobile = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
   useEffect(() => {
+    if (!canUseSandboxBridge()) return;
     const handleMessage = (event: MessageEvent) => {
       if (event.data.type === 'sandbox:navigation') {
         navigate(event.data.pathname);
       }
     };
     window.addEventListener('message', handleMessage);
-    window.parent.postMessage({ type: 'sandbox:web:ready' }, '*');
+    postSandboxMessage({ type: 'sandbox:web:ready' });
     return () => {
       window.removeEventListener('message', handleMessage);
     };
   }, [navigate]);
 
   useEffect(() => {
-    if (pathname) {
-      window.parent.postMessage(
+    if (pathname && canUseSandboxBridge()) {
+      postSandboxMessage(
         {
           type: 'sandbox:web:navigation',
           pathname,
-        },
-        '*'
+        }
       );
     }
   }, [pathname]);
@@ -437,7 +471,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
         <Links />
-        <script type="module" src="/src/__create/dev-error-overlay.js"></script>
+        {import.meta.env.DEV ? <script type="module" src="/src/__create/dev-error-overlay.js"></script> : null}
         <link rel="icon" href="/src/__create/favicon.png" />
         {LoadFontsSSR ? <LoadFontsSSR /> : null}
       </head>

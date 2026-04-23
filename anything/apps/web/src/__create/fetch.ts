@@ -1,5 +1,27 @@
 const originalFetch = fetch;
 const isBackend = () => typeof window === 'undefined';
+const SANDBOX_PARENT_ORIGINS = new Set([
+  'https://www.createanything.com',
+  'https://createanything.com',
+  'https://instant-site-magic-48.vercel.app',
+  'http://localhost:3000',
+]);
+
+const canPostToSandboxParent = () => {
+  if (isBackend()) return false;
+  try {
+    if (!window.parent || window.parent === window) return false;
+  } catch {
+    return false;
+  }
+  if (import.meta.env.DEV) return true;
+  if (!document.referrer) return false;
+  try {
+    return SANDBOX_PARENT_ORIGINS.has(new URL(document.referrer).origin);
+  } catch {
+    return false;
+  }
+};
 
 const safeStringify = (value: unknown) =>
   JSON.stringify(value, (_k, v) => {
@@ -11,7 +33,7 @@ const safeStringify = (value: unknown) =>
 
 const postToParent = (level: string, text: string, extra: unknown) => {
   try {
-    if (isBackend() || !window.parent || window.parent === window) {
+    if (!canPostToSandboxParent()) {
       ('level' in console ? console[level] : console.log)(text, extra);
       return;
     }
