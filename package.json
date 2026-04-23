@@ -1,7 +1,0 @@
-{
-	"name": "kaspi",
-	"private": true,
-	"scripts": {
-		"build": "cd anything/apps/web && npm install && npm run build && rm -rf ../../../.vercel && cp -r .vercel ../../../.vercel && rm -rf .vercel"
-	}
-}
